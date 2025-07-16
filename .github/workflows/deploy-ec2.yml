@@ -3,8 +3,6 @@ name: 🚀 Deploy to AWS EC2
 on:
   push:
     branches: [ main, master ]
-    paths:
-      - 'CI_CD_pipeline_AWS/**'
   workflow_dispatch:
     inputs:
       environment:
@@ -36,29 +34,32 @@ jobs:
       
     - name: 📦 Install Dependencies
       run: |
-        cd CI_CD_pipeline_AWS
         npm init -y || true
         # Skip npm install to avoid dependency issues
         
     - name: 🧪 Run Tests
       run: |
-        cd CI_CD_pipeline_AWS
         echo "Skipping tests for now"
         
     - name: 📦 Build Application
       run: |
-        cd CI_CD_pipeline_AWS
         echo "Building application..."
         mkdir -p dist
-        cp *.html dist/ || true
-        cp *.css dist/ || true
-        cp *.js dist/ || true
+        ls -la
+        # Check if files exist before copying
+        find . -type f -name "*.html" -exec cp {} dist/ \; || true
+        find . -type f -name "*.css" -exec cp {} dist/ \; || true
+        find . -type f -name "*.js" -exec cp {} dist/ \; || true
+        
+        # Show what we've copied
+        echo "Files in dist directory:"
+        ls -la dist/
         
     - name: 📤 Upload Build Artifacts
       uses: actions/upload-artifact@v4
       with:
         name: build-artifacts
-        path: CI_CD_pipeline_AWS/dist/
+        path: dist/
         retention-days: 7
 
   # Job 2: Deploy to EC2
@@ -87,16 +88,6 @@ jobs:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_REGION }}
-        
-    - name: 🔑 Setup SSH Key
-      run: |
-        mkdir -p ~/.ssh
-        echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-        sed -i 's/\r$//' ~/.ssh/id_rsa
-        chmod 600 ~/.ssh/id_rsa
-        cat ~/.ssh/id_rsa
-        ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
-      continue-on-error: true
         
     - name: 🔑 Setup SSH using ssh-action
       uses: appleboy/ssh-action@master
@@ -150,14 +141,11 @@ jobs:
           sudo chown -R nginx:nginx $APP_DIR
           sudo chmod -R 755 $APP_DIR
           
-          # Update version info
-          sudo sed -i 's/1\.0\.0/1.0.0-ec2-'$TIMESTAMP'/g' $APP_DIR/index.html || true
-          
           # Restart nginx
           sudo systemctl restart nginx
           
           echo "✅ Deployment completed successfully!"
-          echo "🌐 Application is available at: http://$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4 || hostname -i)"
+          echo "🌐 Application is available at: http://$(hostname -I | awk '{print $1}')/taskmanager/"
         
     - name: 🧪 Health Check
       run: |
