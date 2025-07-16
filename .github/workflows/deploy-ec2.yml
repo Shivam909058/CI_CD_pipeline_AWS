@@ -27,29 +27,19 @@ jobs:
     - name: 📥 Checkout Code
       uses: actions/checkout@v4
       
-    - name: 🔧 Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '18'
-      
-    - name: 📦 Install Dependencies
-      run: |
-        npm init -y || true
-        # Skip npm install to avoid dependency issues
-        
-    - name: 🧪 Run Tests
-      run: |
-        echo "Skipping tests for now"
-        
     - name: 📦 Build Application
       run: |
         echo "Building application..."
         mkdir -p dist
-        ls -la
-        # Check if files exist before copying
-        find . -type f -name "*.html" -exec cp {} dist/ \; || true
-        find . -type f -name "*.css" -exec cp {} dist/ \; || true
-        find . -type f -name "*.js" -exec cp {} dist/ \; || true
+        
+        # Debug - Show directory structure
+        echo "Directory structure:"
+        find . -type f -name "*.html" -o -name "*.css" -o -name "*.js" | sort
+        
+        # Copy your specific files
+        cp CI_CD_pipeline_AWS/index.html dist/ || echo "Failed to copy index.html"
+        cp CI_CD_pipeline_AWS/styles.css dist/ || echo "Failed to copy styles.css"
+        cp CI_CD_pipeline_AWS/script.js dist/ || echo "Failed to copy script.js"
         
         # Show what we've copied
         echo "Files in dist directory:"
@@ -89,68 +79,49 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_REGION }}
         
-    - name: 🔑 Setup SSH using ssh-action
-      uses: appleboy/ssh-action@master
-      with:
-        host: ${{ secrets.EC2_HOST }}
-        username: ${{ secrets.EC2_USER || 'ec2-user' }}
-        key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-        script: |
-          echo "SSH connection test successful"
-          mkdir -p /tmp/build
-      continue-on-error: true
+    - name: 🔑 Manual SSH and SCP
+      run: |
+        # Create SSH key
+        mkdir -p ~/.ssh
+        echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
         
-    - name: 🚀 Deploy to EC2 (Alternative Method)
-      uses: appleboy/scp-action@master
-      with:
-        host: ${{ secrets.EC2_HOST }}
-        username: ${{ secrets.EC2_USER || 'ec2-user' }}
-        key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-        source: "build/*"
-        target: "/tmp"
-        strip_components: 1
+        # Add host key
+        ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
         
-    - name: 🚀 Execute Deployment Script
-      uses: appleboy/ssh-action@master
-      with:
-        host: ${{ secrets.EC2_HOST }}
-        username: ${{ secrets.EC2_USER || 'ec2-user' }}
-        key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-        script: |
-          # Variables
-          APP_DIR="/var/www/html/taskmanager"
-          BACKUP_DIR="/var/backups/taskmanager"
-          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-          
-          echo "🚀 Starting deployment at $(date)"
-          
-          # Create backup
-          sudo mkdir -p $BACKUP_DIR
-          if [ -d "$APP_DIR" ]; then
-            sudo cp -r $APP_DIR $BACKUP_DIR/backup_$TIMESTAMP
-            echo "✅ Backup created: $BACKUP_DIR/backup_$TIMESTAMP"
-          fi
-          
-          # Create app directory
-          sudo mkdir -p $APP_DIR
+        # Show what we're deploying
+        echo "Files to deploy:"
+        ls -la build/
+        
+        # Make sure target directory exists
+        ssh -i ~/.ssh/id_rsa ${{ secrets.EC2_USER || 'ec2-user' }}@${{ secrets.EC2_HOST }} "mkdir -p /tmp/build"
+        
+        # Copy files
+        scp -r build/* ${{ secrets.EC2_USER || 'ec2-user' }}@${{ secrets.EC2_HOST }}:/tmp/build/
+        
+        # Execute deployment script
+        ssh -i ~/.ssh/id_rsa ${{ secrets.EC2_USER || 'ec2-user' }}@${{ secrets.EC2_HOST }} "
+          # Clear the target directory to ensure no old files remain
+          sudo rm -rf /var/www/html/taskmanager/*
           
           # Copy new files
-          sudo cp -r /tmp/build/* $APP_DIR/
+          sudo cp -r /tmp/build/* /var/www/html/taskmanager/
           
-          # Set permissions
-          sudo chown -R nginx:nginx $APP_DIR
-          sudo chmod -R 755 $APP_DIR
+          # Set ownership and permissions
+          sudo chown -R nginx:nginx /var/www/html/taskmanager/
+          sudo chmod -R 755 /var/www/html/taskmanager/
+          
+          # Show deployed files
+          ls -la /var/www/html/taskmanager/
           
           # Restart nginx
           sudo systemctl restart nginx
-          
-          echo "✅ Deployment completed successfully!"
-          echo "🌐 Application is available at: http://$(hostname -I | awk '{print $1}')/taskmanager/"
+        "
         
     - name: 🧪 Health Check
       run: |
         echo "Performing health check..."
-        sleep 30
+        sleep 10
         
         # Check if the application is accessible
         RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" http://${{ secrets.EC2_HOST }}/taskmanager/ || echo "000")
@@ -159,13 +130,21 @@ jobs:
           echo "✅ Health check passed! Application is running."
         else
           echo "❌ Health check failed! HTTP status: $RESPONSE"
-          # Don't fail the workflow for now
-          # exit 1
         fi
       continue-on-error: true
         
-    - name: 🔔 Notify Success
+    - name: 🔄 Force Cache Refresh
+      run: |
+        # Attempt to force the browser to refresh its cache
+        curl -X PURGE http://${{ secrets.EC2_HOST }}/taskmanager/ || true
+        curl -X PURGE http://${{ secrets.EC2_HOST }}/taskmanager/index.html || true
+        curl -X PURGE http://${{ secrets.EC2_HOST }}/taskmanager/styles.css || true
+        curl -X PURGE http://${{ secrets.EC2_HOST }}/taskmanager/script.js || true
+      continue-on-error: true
+        
+    - name: 🔔 Deployment Summary
       if: always()
       run: |
-        echo "🎉 Deployment completed!"
+        echo "🎉 Deployment process completed"
         echo "🌐 Application URL: http://${{ secrets.EC2_HOST }}/taskmanager/"
+        echo "🔄 Try a hard refresh in your browser (Ctrl+F5) to see the changes"
