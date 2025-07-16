@@ -1,0 +1,19 @@
+{
+  "name": "task-manager-cicd",
+  "version": "1.0.0",
+  "description": "A simple task manager for CI/CD pipeline demonstration",
+  "main": "script.js",
+  "scripts": {
+    "test": "jest --testEnvironment=jsdom",
+    "start": "python -m http.server 8000",
+    "build": "echo 'Build completed'",
+    "lint": "echo 'Linting completed'"
+  },
+  "keywords": ["task-manager", "cicd", "github-actions", "aws"],
+  "author": "Your Name",
+  "license": "MIT",
+  "devDependencies": {
+    "jest": "^29.0.0",
+    "jsdom": "^22.0.0"
+  }
+} 

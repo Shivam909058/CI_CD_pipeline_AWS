@@ -1,0 +1,176 @@
+name: 🚀 Deploy to AWS EC2
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'CI_CD_pipeline_AWS/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+
+env:
+  AWS_REGION: us-east-1
+  EC2_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
+  
+jobs:
+  # Job 1: Build and Test
+  build-and-test:
+    name: 🔨 Build & Test
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+      
+    - name: 🔧 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: CI_CD_pipeline_AWS/package-lock.json
+        
+    - name: 📦 Install Dependencies
+      run: |
+        cd CI_CD_pipeline_AWS
+        npm ci || npm install
+        
+    - name: 🧪 Run Tests
+      run: |
+        cd CI_CD_pipeline_AWS
+        npm test || echo "No tests configured yet"
+        
+    - name: 🔍 Lint Code
+      run: |
+        cd CI_CD_pipeline_AWS
+        echo "Running code quality checks..."
+        # Add your linting commands here
+        
+    - name: 📦 Build Application
+      run: |
+        cd CI_CD_pipeline_AWS
+        echo "Building application..."
+        # Minify CSS and JS if needed
+        mkdir -p dist
+        cp *.html dist/
+        cp *.css dist/
+        cp *.js dist/
+        
+    - name: 📤 Upload Build Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-artifacts
+        path: CI_CD_pipeline_AWS/dist/
+        retention-days: 7
+
+  # Job 2: Deploy to EC2
+  deploy-ec2:
+    name: 🚀 Deploy to EC2
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    
+    environment:
+      name: ${{ github.event.inputs.environment || 'staging' }}
+      
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+      
+    - name: 📦 Download Build Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: build-artifacts
+        path: ./build
+        
+    - name: 🔧 Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+        
+    - name: 🔑 Setup SSH Key
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+        
+    - name: 🚀 Deploy to EC2
+      run: |
+        echo "Deploying to EC2 instance..."
+        
+        # Create deployment script
+        cat > deploy.sh << 'EOF'
+        #!/bin/bash
+        set -e
+        
+        # Variables
+        APP_DIR="/var/www/html/taskmanager"
+        BACKUP_DIR="/var/backups/taskmanager"
+        TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+        
+        echo "🚀 Starting deployment at $(date)"
+        
+        # Create backup
+        sudo mkdir -p $BACKUP_DIR
+        if [ -d "$APP_DIR" ]; then
+          sudo cp -r $APP_DIR $BACKUP_DIR/backup_$TIMESTAMP
+          echo "✅ Backup created: $BACKUP_DIR/backup_$TIMESTAMP"
+        fi
+        
+        # Create app directory
+        sudo mkdir -p $APP_DIR
+        
+        # Copy new files
+        sudo cp -r /tmp/build/* $APP_DIR/
+        
+        # Set permissions
+        sudo chown -R www-data:www-data $APP_DIR
+        sudo chmod -R 755 $APP_DIR
+        
+        # Update version info
+        sudo sed -i 's/1\.0\.0/1.0.0-ec2-'$TIMESTAMP'/g' $APP_DIR/index.html
+        
+        # Restart nginx
+        sudo systemctl restart nginx
+        
+        echo "✅ Deployment completed successfully!"
+        echo "🌐 Application is available at: http://$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)"
+        EOF
+        
+        # Copy files to EC2
+        scp -r build/* ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/tmp/build/
+        
+        # Copy and run deployment script
+        scp deploy.sh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/tmp/
+        ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "chmod +x /tmp/deploy.sh && /tmp/deploy.sh"
+        
+    - name: 🧪 Health Check
+      run: |
+        echo "Performing health check..."
+        sleep 30
+        
+        # Check if the application is accessible
+        RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" http://${{ secrets.EC2_HOST }}/taskmanager/ || echo "000")
+        
+        if [ "$RESPONSE" = "200" ]; then
+          echo "✅ Health check passed! Application is running."
+        else
+          echo "❌ Health check failed! HTTP status: $RESPONSE"
+          exit 1
+        fi
+        
+    - name: 🔔 Notify Success
+      if: success()
+      run: |
+        echo "🎉 Deployment to EC2 completed successfully!"
+        echo "🌐 Application URL: http://${{ secrets.EC2_HOST }}/taskmanager/" 

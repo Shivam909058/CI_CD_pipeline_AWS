@@ -1,0 +1,174 @@
+name: 🚀 Deploy to AWS Elastic Beanstalk
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'CI_CD_pipeline_AWS/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+
+env:
+  AWS_REGION: us-east-1
+  EB_APPLICATION_NAME: taskmanager-app
+  EB_ENVIRONMENT_NAME: taskmanager-env
+  
+jobs:
+  # Job 1: Build and Package
+  build:
+    name: 🔨 Build & Package
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+      
+    - name: 🔧 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        
+    - name: 📦 Install Dependencies
+      run: |
+        cd CI_CD_pipeline_AWS
+        npm init -y || true
+        
+    - name: 🧪 Run Tests
+      run: |
+        cd CI_CD_pipeline_AWS
+        echo "Running tests..."
+        # Add your test commands here
+        
+    - name: 📦 Create Deployment Package
+      run: |
+        cd CI_CD_pipeline_AWS
+        
+        # Create .ebextensions directory for EB configuration
+        mkdir -p .ebextensions
+        
+        # Create nginx configuration
+        cat > .ebextensions/nginx.config << 'EOF'
+        files:
+          "/etc/nginx/conf.d/default.conf":
+            mode: "000644"
+            owner: root
+            group: root
+            content: |
+              server {
+                  listen 80;
+                  server_name _;
+                  root /var/www/html;
+                  index index.html;
+                  
+                  location / {
+                      try_files $uri $uri/ /index.html;
+                  }
+                  
+                  location ~* \.(css|js|png|jpg|jpeg|gif|ico|svg)$ {
+                      expires 1y;
+                      add_header Cache-Control "public, immutable";
+                  }
+              }
+        EOF
+        
+        # Create deployment commands
+        cat > .ebextensions/deploy.config << 'EOF'
+        commands:
+          01_copy_files:
+            command: "cp -r /tmp/deployment/staging/* /var/www/html/"
+          02_set_permissions:
+            command: "chown -R webapp:webapp /var/www/html"
+          03_restart_nginx:
+            command: "service nginx restart"
+        EOF
+        
+        # Update version with timestamp
+        TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+        sed -i 's/1\.0\.0/1.0.0-eb-'$TIMESTAMP'/g' index.html
+        
+        # Create deployment zip
+        zip -r ../deployment-package.zip . -x "*.git*" "node_modules/*" "*.DS_Store*"
+        
+    - name: 📤 Upload Deployment Package
+      uses: actions/upload-artifact@v4
+      with:
+        name: deployment-package
+        path: deployment-package.zip
+        retention-days: 7
+
+  # Job 2: Deploy to Elastic Beanstalk
+  deploy:
+    name: 🚀 Deploy to Elastic Beanstalk
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    
+    environment:
+      name: ${{ github.event.inputs.environment || 'staging' }}
+      
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+      
+    - name: 📦 Download Deployment Package
+      uses: actions/download-artifact@v4
+      with:
+        name: deployment-package
+        path: .
+        
+    - name: 🔧 Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+        
+    - name: 🚀 Deploy to Elastic Beanstalk
+      uses: einaregilsson/beanstalk-deploy@v22
+      with:
+        aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        application_name: ${{ env.EB_APPLICATION_NAME }}
+        environment_name: ${{ env.EB_ENVIRONMENT_NAME }}
+        version_label: ${{ github.sha }}-${{ github.run_number }}
+        region: ${{ env.AWS_REGION }}
+        deployment_package: deployment-package.zip
+        wait_for_environment_recovery: 300
+        
+    - name: 🧪 Health Check
+      run: |
+        echo "Performing health check..."
+        sleep 60
+        
+        # Get environment URL
+        EB_URL=$(aws elasticbeanstalk describe-environments \
+          --application-name ${{ env.EB_APPLICATION_NAME }} \
+          --environment-names ${{ env.EB_ENVIRONMENT_NAME }} \
+          --query 'Environments[0].CNAME' \
+          --output text)
+        
+        echo "Environment URL: http://$EB_URL"
+        
+        # Health check
+        RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" http://$EB_URL || echo "000")
+        
+        if [ "$RESPONSE" = "200" ]; then
+          echo "✅ Health check passed! Application is running."
+          echo "🌐 Application URL: http://$EB_URL"
+        else
+          echo "❌ Health check failed! HTTP status: $RESPONSE"
+          exit 1
+        fi
+        
+    - name: 🔔 Notify Success
+      if: success()
+      run: |
+        echo "🎉 Deployment to Elastic Beanstalk completed successfully!" 

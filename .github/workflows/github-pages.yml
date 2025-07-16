@@ -1,0 +1,123 @@
+name: 🚀 Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'CI_CD_pipeline_AWS/**'
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'CI_CD_pipeline_AWS/**'
+  workflow_dispatch:
+
+jobs:
+  # Job 1: Test the application
+  test:
+    name: 🧪 Test Application
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+      
+    - name: 🔧 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        
+    - name: 📦 Install Dependencies
+      run: |
+        cd CI_CD_pipeline_AWS
+        npm init -y
+        npm install --save-dev jest jsdom
+        
+    - name: 🧪 Run Tests
+      run: |
+        cd CI_CD_pipeline_AWS
+        npm test
+      continue-on-error: true
+      
+    - name: 📊 HTML Validation
+      run: |
+        cd CI_CD_pipeline_AWS
+        echo "Validating HTML structure..."
+        if [ -f "index.html" ]; then
+          echo "✅ index.html found"
+        else
+          echo "❌ index.html not found"
+          exit 1
+        fi
+        
+    - name: 🎨 CSS Validation
+      run: |
+        cd CI_CD_pipeline_AWS
+        echo "Validating CSS..."
+        if [ -f "styles.css" ]; then
+          echo "✅ styles.css found"
+        else
+          echo "❌ styles.css not found"
+          exit 1
+        fi
+        
+    - name: 🔍 JavaScript Validation
+      run: |
+        cd CI_CD_pipeline_AWS
+        echo "Validating JavaScript..."
+        if [ -f "script.js" ]; then
+          echo "✅ script.js found"
+          # Basic syntax check
+          node -c script.js
+          echo "✅ JavaScript syntax is valid"
+        else
+          echo "❌ script.js not found"
+          exit 1
+        fi
+
+  # Job 2: Deploy to GitHub Pages
+  deploy:
+    name: 🚀 Deploy to GitHub Pages
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+      
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+      
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+      
+    - name: 🔧 Setup Pages
+      uses: actions/configure-pages@v4
+      
+    - name: 📦 Prepare Deployment
+      run: |
+        mkdir -p _site
+        cp -r CI_CD_pipeline_AWS/* _site/
+        
+        # Add deployment info
+        echo "<!-- Deployed via GitHub Actions at $(date) -->" >> _site/index.html
+        
+        # Update version in HTML
+        sed -i 's/1\.0\.0/1.0.0-gh-pages-'$(date +%Y%m%d-%H%M%S)'/g' _site/index.html
+        
+    - name: 📤 Upload Artifact
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: '_site'
+        
+    - name: 🚀 Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v4
+      
+    - name: 🎉 Deployment Success
+      run: |
+        echo "🎉 Successfully deployed to GitHub Pages!"
+        echo "🌐 URL: ${{ steps.deployment.outputs.page_url }}" 

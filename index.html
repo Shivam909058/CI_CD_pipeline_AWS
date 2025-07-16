@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task Manager - CI/CD Demo</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚀 Task Manager</h1>
+            <p>A simple app for CI/CD pipeline demonstration</p>
+        </header>
+        
+        <main>
+            <section class="add-task-section">
+                <h2>Add New Task</h2>
+                <div class="input-group">
+                    <input type="text" id="taskInput" placeholder="Enter your task..." maxlength="100">
+                    <button id="addTaskBtn">Add Task</button>
+                </div>
+            </section>
+            
+            <section class="tasks-section">
+                <h2>Your Tasks</h2>
+                <div class="task-stats">
+                    <span id="totalTasks">Total: 0</span>
+                    <span id="completedTasks">Completed: 0</span>
+                </div>
+                <ul id="taskList" class="task-list"></ul>
+            </section>
+        </main>
+        
+        <footer>
+            <p>CI/CD Pipeline Demo - Version <span id="version">1.0.0</span></p>
+            <p>Deployed via GitHub Actions & AWS</p>
+        </footer>
+    </div>
+    
+    <script src="script.js"></script>
+</body>
+</html>
