@@ -36,18 +36,15 @@ jobs:
       
     - name: 📦 Install Dependencies
       run: |
-        cd CI_CD_pipeline_AWS
         npm init -y || true
         # Skip npm install to avoid dependency issues
         
     - name: 🧪 Run Tests
       run: |
-        cd CI_CD_pipeline_AWS
         echo "Skipping tests for now"
         
     - name: 📦 Build Application
       run: |
-        cd CI_CD_pipeline_AWS
         echo "Building application..."
         mkdir -p dist
         cp *.html dist/
@@ -58,7 +55,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: build-artifacts
-        path: CI_CD_pipeline_AWS/dist/
+        path: dist/
         retention-days: 7
 
   # Job 2: Deploy to EC2
