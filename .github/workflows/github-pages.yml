@@ -3,12 +3,8 @@ name: 🚀 Deploy to GitHub Pages
 on:
   push:
     branches: [ main, master ]
-    paths:
-      - 'CI_CD_pipeline_AWS/**'
   pull_request:
     branches: [ main, master ]
-    paths:
-      - 'CI_CD_pipeline_AWS/**'
   workflow_dispatch:
 
 jobs:
@@ -19,28 +15,25 @@ jobs:
     
     steps:
     - name: 📥 Checkout Code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v4 # this is the checkout action its syntax is used to checkout the code from the repository (https://github.com/actions/checkout)
       
     - name: 🔧 Setup Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v4 # this is the setup-node action its syntax is used to setup the node.js environment (https://github.com/actions/setup-node)
       with:
         node-version: '18'
         
     - name: 📦 Install Dependencies
       run: |
-        cd CI_CD_pipeline_AWS
         npm init -y
         npm install --save-dev jest jsdom
         
     - name: 🧪 Run Tests
       run: |
-        cd CI_CD_pipeline_AWS
         npm test
       continue-on-error: true
       
     - name: 📊 HTML Validation
       run: |
-        cd CI_CD_pipeline_AWS
         echo "Validating HTML structure..."
         if [ -f "index.html" ]; then
           echo "✅ index.html found"
@@ -51,7 +44,6 @@ jobs:
         
     - name: 🎨 CSS Validation
       run: |
-        cd CI_CD_pipeline_AWS
         echo "Validating CSS..."
         if [ -f "styles.css" ]; then
           echo "✅ styles.css found"
@@ -62,7 +54,6 @@ jobs:
         
     - name: 🔍 JavaScript Validation
       run: |
-        cd CI_CD_pipeline_AWS
         echo "Validating JavaScript..."
         if [ -f "script.js" ]; then
           echo "✅ script.js found"
@@ -100,12 +91,8 @@ jobs:
     - name: 📦 Prepare Deployment
       run: |
         mkdir -p _site
-        cp -r CI_CD_pipeline_AWS/* _site/
-        
-        # Add deployment info
+        rsync -av --exclude='_site' ./ _site/
         echo "<!-- Deployed via GitHub Actions at $(date) -->" >> _site/index.html
-        
-        # Update version in HTML
         sed -i 's/1\.0\.0/1.0.0-gh-pages-'$(date +%Y%m%d-%H%M%S)'/g' _site/index.html
         
     - name: 📤 Upload Artifact
